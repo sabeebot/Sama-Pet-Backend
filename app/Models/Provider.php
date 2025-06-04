@@ -89,4 +89,10 @@ class Provider extends Authenticatable
     {
         return $this->hasOne(TrainerInfo::class);
     }
+
+    public function coupons()
+{
+    return $this->hasMany(Coupon::class, 'provider_id');
+}
+
 }

@@ -15,6 +15,9 @@ class Membership extends Model
         'end_date',
         'package_id',
         'pet_id',
+        'status',   
+        'pay_type',  
+        'delivery' 
     ];
 
     // Define an inverse one-to-many relationship with Package
@@ -24,8 +27,15 @@ class Membership extends Model
     }
 
     // Define an inverse one-to-many relationship with Pet
+    //public function pet()
+    //{
+    //    return $this->belongsTo(Pet::class);
+    //}
+
+
+
     public function pet()
     {
-        return $this->belongsTo(Pet::class);
+        return $this->belongsTo(Pet::class, 'pet_id');
     }
 }

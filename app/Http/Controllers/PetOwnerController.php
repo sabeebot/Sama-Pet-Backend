@@ -2,9 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Pet;
-use Illuminate\Support\Facades\Log;
 use App\Models\PetOwner;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Http\Request;
 use Kreait\Firebase\Factory;
 use App\Http\Resources\PetOwnerResource;
@@ -15,7 +14,7 @@ use Illuminate\Support\Facades\Validator;
 class PetOwnerController extends Controller
 {
     /**
-     * Retrieve and display a list of all pet owners.
+     * Display a listing of all pet owners.
      */
     public function index()
     {
@@ -23,100 +22,146 @@ class PetOwnerController extends Controller
         return PetOwnerResource::collection($petOwners);
     }
 
-    // private function userStatus($id)
-    // {
-    //     $petOwner = PetOwner::findOrFail($id);
-    //     $pets = $petOwner->pets;
-    //     $isM = false;
-    //     $isFreeTrial = false;
-    //     for ($i = 0; $i < count($pets); $i++) {
-    //         $membership = Membership::where('pet_id', $pets[$i]->id)->first();
-    //         if ($membership) {
-    //             $isM = true;
-    //             $package = $membership->package;
-    //             $package->is_free_trial ? $isFreeTrial = true : $isFreeTrial = false;
-    //             if ($isFreeTrial) {
-    //                 return 'Free trial';
-    //             }
-    //         }
-    //     }
-    //     if ($isM) {
-    //         return 'Member';
-    //     } else {
-    //         return 'Non-member';
-    //     }
-    // }
-
     /**
-     * Show the form for creating a new resource.
+     * Store a newly created pet owner in the database,
+     * including uploading the profile image to Firebase.
      */
-    public function create()
+    public function store(Request $request)
     {
-        //
+        // Updated validator to include the phone field
+        $validator = Validator::make($request->all(), [
+            'first_name'    => 'required|alpha|min:3|max:31',
+            'last_name'     => 'required|alpha|min:3|max:31',
+            'email'         => 'required|email:rfc,dns|unique:pet_owners,email',
+            'password'      => 'required|min:8',
+            'status'        => 'required|string',  // <-- Added status here
+            'nationality'   => 'required|string',
+            'phone'         => 'required|string', // Added phone field
+            'profile_image' => 'required|string',  // Expecting a Base64 image string
+            'city'          => 'required|string|max:32',  // <-- Add this line
+            'date_of_birth' => 'required|date',
+            'gender'        => 'required|in:m,f', // Gender is now required
+            'house'         => 'nullable|string|max:255',
+            'road'          => 'nullable|string|max:255',
+            'block'         => 'nullable|string|max:255',
+            'building'      => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $data = $validator->validated();
+
+        // Process the profile image upload via Firebase
+        $profileImageBase64 = $data['profile_image'];
+
+        if (preg_match('/^data:image\/(\w+);base64,/', $profileImageBase64, $matches)) {
+            $extension = strtolower($matches[1]); // e.g., jpg, png
+            if (!in_array($extension, ['jpg', 'jpeg', 'png'])) {
+                return response()->json(['error' => 'Invalid image type. Only JPG, JPEG, and PNG are allowed.'], 422);
+            }
+            $profileImageBase64 = substr($profileImageBase64, strpos($profileImageBase64, ',') + 1);
+            $imageData = base64_decode($profileImageBase64);
+            if ($imageData === false) {
+                return response()->json(['error' => 'Base64 decoding failed.'], 422);
+            }
+        } else {
+            return response()->json(['error' => 'Invalid image data.'], 422);
+        }
+
+        // Generate a unique filename and define the Firebase storage path
+        $fileName = uniqid() . '.' . $extension;
+        $firebasePath = 'profile_images/' . $fileName;
+
+        // Ensure the Firebase service account file exists
+        $serviceAccountPath = storage_path('app/firebase-auth.json');
+        if (!file_exists($serviceAccountPath)) {
+            return response()->json(['error' => 'Firebase service account file not found.'], 500);
+        }
+
+        try {
+            $factory = (new Factory)->withServiceAccount($serviceAccountPath);
+            $storage = $factory->createStorage();
+            $bucket = $storage->getBucket();
+
+            // Upload the image data to Firebase Storage with public-read access
+            $bucket->upload($imageData, [
+                'name'          => $firebasePath,
+                'predefinedAcl' => 'publicRead'
+            ]);
+
+            // Construct the public URL for the uploaded image.
+            $profileImageUrl = "https://storage.googleapis.com/{$bucket->name()}/{$firebasePath}";
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Image upload failed: ' . $e->getMessage()], 500);
+        }
+
+        // Create the pet owner record in MySQL including the phone field
+        $petOwner = PetOwner::create([
+            'first_name'    => $data['first_name'],
+            'last_name'     => $data['last_name'],
+            'email'         => $data['email'],
+            'password'      => Hash::make($data['password']),
+            'nationality'   => $data['nationality'],
+            'phone'         => $data['phone'], // Added phone here
+            'profile_image' => $profileImageUrl,
+            'status'        => $data['status'],   // Save status here
+            'date_of_birth' => $data['date_of_birth'],
+            'house'         => $data['house'] ?? null,
+            'road'          => $data['road'] ?? null,
+            'gender'        => $data['gender'],
+            'block'         => $data['block'] ?? null,
+            'city'          => $data['city'],             // <-- Add this line
+            'building'      => $data['building'] ?? null
+,
+        ]);
+
+        return new PetOwnerResource($petOwner);
     }
 
-    /**
-     * Store a newly created pet owner in the database.
-     */
-    // public function store(Request $request)
-    // {
-    //     $validator = Validator::make($request->all(), [
-    //         'first_name' => 'required|alpha|min:3|max:31',
-    //         'last_name' => 'required|alpha|min:3|max:31',
-    //         'email' => 'required|email:rfc,dns|unique:pet_owners',
-    //         'password' => 'required|min:8',
-    //         'nationality' => 'required|string',
-    //         'profile_image' => 'required|string',
-    //         'location' => 'required|string|max:32',
-    //         'date_of_birth' => 'required|date',
-    //         'house' => 'nullable|string|max:255',
-    //         'road' => 'nullable|string|max:255',
-    //         'block' => 'nullable|string|max:255',
-    //         'building_name' => 'nullable|string|max:255',
-    //         'apt_number' => 'nullable|string|max:255',
-    //         'floor' => 'nullable|string|max:255',
-    //         'company' => 'nullable|string|max:255',
-    //     ]);
 
-    //     if ($validator->fails()) {
-    //         return response()->json(['errors' => $validator->errors()], 422);
-    //     }
-
-    //     $petOwner = PetOwner::create([
-    //         'first_name' => $request->first_name,
-    //         'last_name' => $request->last_name,
-    //         'email' => $request->email,
-    //         'password' => Hash::make($request->password),
-    //         'nationality' => $request->nationality,
-    //         'profile_image' => $request->profile_image,
-    //         'location' => $request->location,
-    //         'date_of_birth' => $request->date_of_birth,
-    //         'house' => $request->house,
-    //         'road' => $request->road,
-    //         'block' => $request->block,
-    //         'building_name' => $request->building_name,
-    //         'apt_number' => $request->apt_number,
-    //         'floor' => $request->floor,
-    //         'company' => $request->company,
-    //     ]);
-
-    //     return new PetOwnerResource($petOwner);
-    // }
+    public function searchByEmail(Request $request)
+{
+    $email = $request->query('email');
+    if (!$email) {
+        return response()->json(['message' => 'Email is required'], 400);
+    }
+    
+    $owner = PetOwner::where('email', $email)->first();
+    if (!$owner) {
+        return response()->json(['message' => 'Owner not found'], 404);
+    }
+    
+    return response()->json($owner, 200);
+}
 
 
     /**
      * Display the specified pet owner.
      */
+    public function show($id)
+{
+    // Eager load pets and, for each pet, its membership
+    $owner = PetOwner::with('pets.membership.package')->find($id); // two eager calling in one call we get pets to populate but we also get the membership to display amount of pet and amoutn of memebrship
 
-    public function show(PetOwner $pet_owner)
-    {
-        Log::info('PetOwner data=============>:', $pet_owner->toArray());
-        return new PetOwnerResource($pet_owner);
+    if (!$owner) {
+        Log::error("Owner not found for ID: " . $id);
+        return response()->json(['error' => 'Owner not found'], 404);
     }
 
+    Log::info("Owner found: ", $owner->toArray());
+    return new PetOwnerResource($owner);
+}
+
+
+
+    /**
+     * Retrieve pet owner by email.
+     */
     public function getByEmail(Request $request)
     {
-        $email = $request->email; // Retrieve the email from query parameters
+        $email = $request->email;
         if (!$email) {
             return response()->json(['error' => 'Email is required'], 400);
         }
@@ -130,75 +175,100 @@ class PetOwnerController extends Controller
         return response()->json(['ownerId' => $petOwner->id]);
     }
 
-    public function view($id)
-    {
-        $petOwner = PetOwner::findOrFail($id);
-        // $status = $this->userStatus($id);
-
-        return response()->json(array_merge($petOwner->toArray(), ['status' => $petOwner->status]));
-    }
-
     /**
-     * Show the form for editing the specified resource.
-     */
-    public function edit(string $id)
-    {
-        //
-    }
-
-    /**
-     * UUpdate the specified pet owner in the database.
+     * Update the specified pet owner.
      */
     public function update(Request $request, string $id)
     {
         $petOwner = PetOwner::findOrFail($id);
 
         $validator = Validator::make($request->all(), [
-            'first_name' => 'required|alpha|min:3|max:31',
-            'last_name' => 'required|alpha|min:3|max:31',
-            'email' => 'sometimes|required|email:rfc,dns|unique:pet_owners,email,' . $petOwner->id,
-            'password' => 'nullable|min:8',
-            'nationality' => 'required|string',
-            'phone' => 'required|string',
-            'location' => 'required|string|max:32',
-            'city' => 'required|string|max:32',
-            'gender' => 'required|in:m,f',
+            'first_name'    => 'required|alpha|min:3|max:31',
+            'last_name'     => 'required|alpha|min:3|max:31',
+            'email'         => 'sometimes|required|email:rfc,dns|unique:pet_owners,email,' . $petOwner->id,
+            'password'      => 'nullable|min:8',
+            'nationality'   => 'required|string',
+            'phone'         => 'required|string',
+            'status'        => 'required|string',  // <-- Added status here
+            'city'          => 'required|string|max:32',
+            'gender'        => 'required|in:m,f',
             'date_of_birth' => 'required|date',
-            'house' => 'nullable|string|max:255',
-            'road' => 'nullable|string|max:255',
-            'block' => 'nullable|string|max:255',
-            'building_name' => 'nullable|string|max:255',
-            'apt_number' => 'nullable|string|max:255',
-            'floor' => 'nullable|string|max:255',
-            'company' => 'nullable|string|max:255',
+            'house'         => 'nullable|string|max:255',
+            'road'          => 'nullable|string|max:255',
+            'block'         => 'nullable|string|max:255',
+            'building'      => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        // Set default to the existing image URL
+    $profileImageUrl = $petOwner->profile_image;
+
+    // Check if a new image is provided (it should be a base64 string starting with "data:image/")
+    if (isset($request->profile_image) && preg_match('/^data:image\/(\w+);base64,/', $request->profile_image, $matches)) {
+        Log::info('New image provided in update request.');
+        $profileImageBase64 = $request->profile_image;
+        $extension = strtolower($matches[1]);
+        if (!in_array($extension, ['jpg', 'jpeg', 'png'])) {
+            return response()->json(['error' => 'Invalid image type. Only JPG, JPEG, and PNG are allowed.'], 422);
+        }
+        $profileImageBase64 = substr($profileImageBase64, strpos($profileImageBase64, ',') + 1);
+        $imageData = base64_decode($profileImageBase64);
+        if ($imageData === false) {
+            return response()->json(['error' => 'Base64 decoding failed.'], 422);
+        }
+        
+        // Generate a unique filename and define the Firebase storage path
+        $fileName = uniqid() . '.' . $extension;
+        $firebasePath = 'profile_images/' . $fileName;
+        $serviceAccountPath = storage_path('app/firebase-auth.json');
+        if (!file_exists($serviceAccountPath)) {
+            return response()->json(['error' => 'Firebase service account file not found.'], 500);
+        }
+
+        try {
+            $factory = (new \Kreait\Firebase\Factory)->withServiceAccount($serviceAccountPath);
+            $storage = $factory->createStorage();
+            $bucket = $storage->getBucket();
+
+            // Upload the new image to Firebase
+            $bucket->upload($imageData, [
+                'name'          => $firebasePath,
+                'predefinedAcl' => 'publicRead'
+            ]);
+
+            // Construct the public URL for the uploaded image.
+            $profileImageUrl = "https://storage.googleapis.com/{$bucket->name()}/{$firebasePath}";
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Image upload failed: ' . $e->getMessage()], 500);
+        }
+    }
+
         $petOwner->update([
-            'first_name' => $request->first_name,
-            'last_name' => $request->last_name,
-            'password' => $request->password ? Hash::make($request->password) : $petOwner->password,
-            'nationality' => $request->nationality,
-            'phone' => $request->phone,
-            'location' => $request->location,
-            'city' => $request->city,
-            'gender' => $request->gender,
+            'first_name'    => $request->first_name,
+            'last_name'     => $request->last_name,
+            'password'      => $request->password ? Hash::make($request->password) : $petOwner->password,
+            'nationality'   => $request->nationality,
+            'phone'         => $request->phone,
+            'city'          => $request->city,
+            'gender'        => $request->gender,
             'date_of_birth' => $request->date_of_birth,
-            'house' => $request->house,
-            'road' => $request->road,
-            'block' => $request->block,
-            'building_name' => $request->building_name,
-            'apt_number' => $request->apt_number,
-            'floor' => $request->floor,
-            'company' => $request->company,
+            'house'         => $request->house,
+            'status'        => $request->status, // Update status here
+            'road'          => $request->road,
+            'block'         => $request->block,
+            'building'      => $request->building
+
         ]);
 
         return new PetOwnerResource($petOwner);
     }
 
+    /**
+     * Update the pet owner's profile image using file upload.
+     */
     public function update_profile_image(Request $request, $id)
     {
         $petOwner = PetOwner::findOrFail($id);
@@ -218,7 +288,7 @@ class PetOwnerController extends Controller
 
         $firebaseFile = fopen($profileImage->getPathname(), 'r');
         $bucket->upload($firebaseFile, [
-            'name' => $filePath,
+            'name'          => $filePath,
             'predefinedAcl' => 'publicRead'
         ]);
 
@@ -226,45 +296,40 @@ class PetOwnerController extends Controller
 
         $petOwner->update([
             'profile_image' => $imageUrl,
-
         ]);
 
         return new PetOwnerResource($petOwner);
     }
 
+    /**
+     * Update the pet owner's password.
+     */
     public function updatePass(Request $request)
     {
-        // Validate the email and password fields
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
+            'email'    => 'required|email',
             'password' => 'required|min:8|confirmed',
         ]);
 
-        // If validation fails, return errors
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // Find the pet owner by email
         $petOwner = PetOwner::where('email', $request->email)->first();
 
-        // If no pet owner is found, return an error
         if (!$petOwner) {
             return response()->json(['message' => 'Pet owner not found.'], 404);
         }
 
-        // Update the password
         $petOwner->update([
             'password' => Hash::make($request->password),
         ]);
 
-        // Return success response
         return response()->json(['message' => 'Password updated successfully.']);
     }
 
-
     /**
-     * Remove the specified pet owner from database.
+     * Remove the specified pet owner.
      */
     public function destroy(string $id)
     {

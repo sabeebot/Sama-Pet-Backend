@@ -47,7 +47,11 @@ return [
         'provider' => [
             'driver' => 'sanctum',
             'provider' => 'providers',
-        ]
+        ],
+        'pet_owner' => [ // ✅ add this
+        'driver' => 'sanctum',
+        'provider' => 'pet_owners',
+    ],
     ],
 
     /*
@@ -81,6 +85,10 @@ return [
             'driver' => 'eloquent',
             'model' => App\Models\Provider::class,
         ],
+        'pet_owners' => [ // ✅ add this
+        'driver' => 'eloquent',
+        'model' => App\Models\PetOwner::class,
+    ],
     ],
 
     /*

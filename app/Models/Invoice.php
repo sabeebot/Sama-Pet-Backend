@@ -2,15 +2,31 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Invoice extends Model
 {
-    use HasFactory;
+    // Disable automatic timestamps if not needed
+    public $timestamps = false;
 
-    public function petOwner()
+    protected $fillable = [
+        'order_id',
+        'membership_id'
+    ];
+
+    /**
+     * Get the order associated with the invoice.
+     */
+    public function order()
     {
-        return $this->belongsTo(PetOwner::class);
+        return $this->belongsTo(Order::class);
+    }
+
+    /**
+     * Get the membership associated with the invoice.
+     */
+    public function membership()
+    {
+        return $this->belongsTo(Membership::class);
     }
 }

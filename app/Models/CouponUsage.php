@@ -20,4 +20,12 @@ class CouponUsage extends Model
     {
         return $this->belongsTo(PetOwner::class); 
     }
+
+    public function coupon()
+{
+    return $this->belongsTo(Coupon::class, 'coupon_id');
+}
+
+
+    
 }

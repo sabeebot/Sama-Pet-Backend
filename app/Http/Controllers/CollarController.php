@@ -16,34 +16,35 @@ class CollarController extends Controller
         $this->petController = $petController;
     }
 
-    public function update(Request $request) {
-        // Validate the incoming request
-        $request->validate([
-            'pet_id' => 'required|exists:pets,id',
-            'code' => 'required'
-        ]);
-        
-        // Construct the URL using the provided code
-        $url = 'http://localhost:4300/user-main-component/find_pet/' . $request->code;
-    
-        // Log the constructed URL for debugging
-        \Log::info('Fetching collar with URL: ' . $url);
-    
-        // Retrieve the collar data based on the provided code
-        $collar = Collar::where('url', $url)->first();
-    
-        // Check if the collar exists
-        if (!$collar) {
-            return response()->json(['message' => 'Collar not found.'], 404);
-        }
-    
-        // Update the pet_id for the retrieved collar
-        $collar->pet_id = $request->pet_id;
-        $collar->save();
-    
-        // Return a success response
-        return response()->json(['message' => 'Collar updated successfully.', 'collar' => $collar], 200);
+
+    public function Index()
+{
+    $collars = Collar::with('pet.petOwner')->get();
+    return response()->json(['data' => $collars]);
+}
+
+
+public function update(Request $request, $petId)
+{
+    $request->validate([
+        'code'    => 'required',
+        'pet_id'  => 'required|exists:pets,id',
+    ]);
+
+    $url = 'http://localhost:4300/user-main-component/find_pet/' . $request->code;
+
+    $collar = Collar::where('url', $url)->first();
+    if (!$collar) {
+        return response()->json(['message' => 'Collar not found.'], 404);
     }
+
+    $collar->pet_id = $petId;   // or $request->pet_id
+    $collar->save();
+
+    return response()->json(['message' => 'Collar updated.', 'collar' => $collar]);
+}
+
+
 
     
 
@@ -64,4 +65,31 @@ class CollarController extends Controller
             'data' => $pet
         ]);
     }
+
+
+    public function updateCollarCode(Request $request, $petId)
+    {
+        // grab the raw code string from the request body
+        $newCode = $request->input('code');
+
+        // find the collar record by pet_id
+        $collar = Collar::where('pet_id', $petId)->first();
+
+        if (! $collar) {
+            return response()->json([
+                'message' => "No collar record found for pet {$petId}"
+            ], 404);
+        }
+
+        // overwrite its URL column
+        $collar->url = $newCode;
+        $collar->save();
+
+        return response()->json([
+            'message' => 'Collar URL updated successfully',
+            'collar'  => $collar,
+        ], 200);
+    }
+
+
 }

@@ -1,145 +1,189 @@
 <?php
 
-
 namespace App\Http\Controllers;
 
-use App\Models\Order;
-use App\Models\PetOwner; // Assuming you have this model
 use Illuminate\Http\Request;
+use App\Models\Order;
+use App\Models\OrderProduct;
+use App\Models\Product;
+use App\Models\Invoice;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Validator;
+use App\Http\Resources\OrderResource;
+
+use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
-    /**
-     * Store a new order.
-     */
-    public function store(Request $request)
+
+
+    public function getOrdersByUserId($petOwnerId)
+{
+    $orders = Order::with(['OrderProducts.product'])
+        ->where('pet_owner_id', $petOwnerId)
+        ->orderBy('invoice_date', 'desc')
+        ->get();
+    
+    return response()->json($orders, 200);
+}
+
+
+    public function index()
     {
-        // Log the incoming request for debugging
-        Log::info('Order request received:', $request->all());
+        $orders = Order::with(['OrderProducts.product'])
+                       ->orderBy('invoice_date', 'desc')
+                       ->get();
     
-        // Validate the request data
-        $validator = Validator::make($request->all(), [
-            'pet_owner_id' => 'required|exists:pet_owners,id',
-            'amount' => 'required|numeric|min:0',
-            'discount_amount' => 'nullable|numeric|min:0',
-            'status' => 'required|string|in:pending,delivered,failed',
-            'order_date' => 'nullable|date', // Date validation
-            'metadata' => 'nullable|json', // Validate metadata as JSON string
-        ]);
+        return response()->json($orders);
+    }
     
-        // Return validation errors if any
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-    
-        try {
-            // Decode the metadata field into an array (if not null)
-            $metadata = json_decode($request->metadata, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                return response()->json(['error' => 'Invalid metadata format.'], 422);
-            }
-    
-            // Ensure 'products' array exists inside metadata
-            if (!isset($metadata['products']) || !is_array($metadata['products'])) {
-                return response()->json(['error' => 'Metadata must contain a products list.'], 422);
-            }
-    
-            // Convert the ISO 8601 date to MySQL-compatible format
-            $orderDate = $request->order_date ? \Carbon\Carbon::parse($request->order_date)->format('Y-m-d H:i:s') : null;
-    
-            // Create the order
-            $order = Order::create([
-                'pet_owner_id' => $request->pet_owner_id,
-                'amount' => $request->amount,
-                'discount_amount' => $request->discount_amount,
-                'status' => $request->status,
-                'order_date' => $orderDate, // Use the formatted date
-                'metadata' => $request->metadata, // Store as JSON string
-            ]);
-    
-            // Log the order object before returning it
-            Log::info('Order created:', $order->toArray());
-    
-            // Return the newly created order as a resource
-            return response()->json([
-                'message' => 'Order created successfully.',
-                'order' => $order,
-            ], 201);
-    
-        } catch (\Exception $e) {
-            // Log the exception message
-            Log::error('Error creating order:', ['message' => $e->getMessage()]);
-    
-            // Return an error response
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    }    
 
 
     /**
-     * Show a single order by ID.
+     * Get the next available invoice and order numbers by fetching the auto-increment value.
+     */
+    public function getNextNumbers()
+{
+    $lastOrder = Order::orderBy('id', 'desc')->first();
+    $lastInvoice = Invoice::orderBy('id', 'desc')->first();
+
+    $nextOrderId = $lastOrder ? $lastOrder->id + 1 : 1;
+    $nextInvoiceId = $lastInvoice ? $lastInvoice->id + 1 : 1;
+
+    return response()->json([
+        'order_number'   => $nextOrderId,
+        'invoice_number' => $nextInvoiceId,
+    ]);
+}
+
+/**
+     * Display the specified order along with its order products.
      */
     public function show($id)
     {
-        // Find order by ID
-        $order = Order::findOrFail($id);
+        $order = Order::with(['OrderProducts.product'])->findOrFail($id);
+        return new OrderResource($order);
+    }
 
-        return response()->json([
-            'order' => $order,
-        ], 200);
+
+
+
+
+
+    /**
+     * Retrieve products for a given provider.
+     */
+    public function getProductsByProvider($providerId)
+    {
+         $products = Product::where('provider_id', $providerId)->get();
+         return response()->json($products);
     }
 
     /**
-     * Get all orders by pet owner ID (user ID).
+     * Store a new invoice with its invoice items.
      */
-    public function getOrdersByUserId($pet_owner_id)
-    {
-        // Validate that the pet owner exists
-        $petOwner = PetOwner::findOrFail($pet_owner_id);
+    public function store(Request $request)
+{
 
-        // Get all orders for the given pet owner
-        $orders = Order::where('pet_owner_id', $pet_owner_id)->get();
+    Log::info('[OrderController] Incoming request payload:', $request->all());
 
-        return response()->json([
-            'orders' => $orders,
-        ], 200);
-    }
 
-    /**
-     * Update an existing order.
-     */
-    public function update(Request $request, Order $order)
-    {
-        // Validate the incoming request
-        $validator = Validator::make($request->all(), [
-            'pet_owner_id' => 'required|exists:pet_owners,id',
-            'products' => 'required|array',
-            'products.*.provider_id' => 'required|exists:providers,id',
-            'products.*.product_id' => 'required|exists:products,id',
-            'products.*.amount' => 'required|numeric|min:1',
-            'products.*.price' => 'required|numeric|min:1',
-            'amount' => 'required|numeric|min:0',
-            'discount_amount' => 'nullable|numeric|min:0',
-            'currency' => 'required|string|max:3',
-            'status' => 'required|string|in:pending,completed,failed',
-            'order_date' => 'nullable|date',
-            'metadata' => 'nullable|json',
-        ]);
 
-        // Return validation errors if any
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+    $validatedData = $request->validate([
+        'invoice_date'           => 'required|date',
+        'status'                 => 'required|string',
+        'customer_name'          => 'required|string',
+        'contact_no'             => 'required|string',
+        'email'                  => 'required|email',
+        'address'                => 'required|string',
+        'delivery'               => 'nullable|numeric',
+        'products'               => 'required|array',
+        'products.*.product_id'  => 'required|integer|exists:products,id',
+        'products.*.quantity'    => 'required|integer|min:1',
+        'products.*.discount_percentage' => 'nullable|numeric|min:0|max:100',
+        'pet_owner_id'                  => 'nullable|integer|exists:pet_owners,id', // New validation rule
+    ]);
+
+    DB::beginTransaction();
+
+    try {
+        $totalAmount = 0;
+
+        foreach ($validatedData['products'] as $productItem) {
+            $product = Product::find($productItem['product_id']);
+            $discountPercentage = $productItem['discount_percentage'] ?? 0;
+            $discountedPrice = $product->price - ($product->price * $discountPercentage / 100);
+            $totalAmount += $discountedPrice * $productItem['quantity'];
         }
 
-        // Update the order with the validated data
-        $order->update($request->all());
+        $delivery = $validatedData['delivery'] ?? 0;
+        $totalAmount += $delivery;
 
-        // Return the updated order as a resource
-        return response()->json([
-            'message' => 'Order updated successfully.',
-            'order' => $order,
+        $order = Order::create([
+            'invoice_date'  => $validatedData['invoice_date'],  // <-- clearly pass this
+            'customer_name' => $validatedData['customer_name'],
+            'address'       => $validatedData['address'],
+            'contact_no'    => $validatedData['contact_no'],
+            'email'         => $validatedData['email'],
+            'status'        => $validatedData['status'],
+            'delivery'      => $delivery,
+            'total_amount'  => $totalAmount,
+            'pet_owner_id'  => $validatedData['pet_owner_id'] ?? null,  // Now includes pet_owner_id if provided
         ]);
+
+        foreach ($validatedData['products'] as $productItem) {
+            $product = Product::find($productItem['product_id']);
+            $discountPercentage = $productItem['discount_percentage'] ?? 0;
+            $discountedPrice = $product->price - ($product->price * $discountPercentage / 100);
+
+            OrderProduct::create([
+                'order_id'            => $order->id,
+                'product_id'          => $product->id,
+                'quantity'            => $productItem['quantity'],
+                'unit_price'          => $product->price,
+                'discount_percentage' => $discountPercentage,
+                'total_price'         => $discountedPrice * $productItem['quantity'],
+            ]);
+
+            Log::info('[OrderController] Order created with ID: ' . $order->id);
+
+        }
+
+        // Create Invoice linked with order
+        $invoice = Invoice::create(['order_id' => $order->id]);
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Order created successfully',
+            'invoice_id' => $invoice->id,  
+            'type' => 'order'
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Order creation failed',
+            'error'   => $e->getMessage(),
+        ], 500);
     }
+}
+
+public function getOwnerOrders($petOwnerId)
+{
+    $orders = Order::with(['OrderProducts.product'])
+                   ->where('pet_owner_id', $petOwnerId)
+                   ->orderBy('invoice_date', 'desc')
+                   ->get();
+
+    // Log for debugging
+    Log::info("Orders found for owner {$petOwnerId}: " . $orders->count());
+
+    return response()->json($orders);
+}
+
+
+
+
+
+
 }

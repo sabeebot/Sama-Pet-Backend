@@ -28,6 +28,78 @@ class ProductCategoryController extends Controller
         $ProductCategories = ProductCategory::where('provider_id', $provider_id)->get();
         return response()->json($ProductCategories);
     }
+
+
+    /**
+     * Store a new product category from the admin dashboard.
+     * This method uses only the required fields: name, total_stock, selected_subcategory, and description.
+     */
+    public function storeProductCategoryAdminDashboard(Request $request)
+    {
+        Log::debug('Admin Dashboard Category Request:', $request->all());
+
+        // Extract category and provider data
+        $category = $request->input('category');
+        $provider = $request->input('provider_data');
+
+        if (!$provider || !isset($provider['profileId'])) {
+            Log::debug('Provider data or profile ID is missing in admin request.');
+            return response()->json(['error' => 'Provider data or profile ID is missing.'], 422);
+        }
+
+        $provider_id = $provider['profileId'];
+        Log::debug('Admin Provider ID:', ['provider_id' => $provider_id]);
+
+        // Validate only the required fields.
+        $validator = Validator::make($category, [
+            'name'                => 'required|string',
+            'total_stock'         => 'required|integer',
+            'selected_subcategory'=> 'required|string',  // pet type field
+            'description'         => 'required|string'
+        ]);
+
+        if ($validator->fails()) {
+            Log::debug('Admin category validation failed:', $validator->errors()->all());
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        // Prepare data for insertion. The extra field (selected_category) is not needed.
+        $tableData = [
+            'name'                 => $category['name'],
+            'total_stock'          => $category['total_stock'],
+            'selected_subcategory' => $category['selected_subcategory'],
+            'description'          => $category['description'],
+            'price'                => '00',
+            'availability'         => true,
+            'total_sold'           => '00',
+            'status'               => 'deactive',
+            'provider_id'          => $provider_id,
+            'selected_category'    => '',  // not used in admin dashboard
+             'image_url'            => ''
+        ];
+
+        Log::debug('Storing admin dashboard category with data:', $tableData);
+
+        $storedCategory = ProductCategory::create($tableData);
+        Log::debug('Admin Dashboard Category stored successfully:', ['storedCategory' => $storedCategory]);
+
+        return response()->json([
+            'message'  => 'Admin dashboard category added successfully.',
+            'category' => $storedCategory,
+        ], 200);
+    }
+
+    public function getCategories(Request $request)
+    {
+        try {
+            $categories = \App\Models\ProductCategory::all();
+            Log::debug('Fetched product categories:', $categories->toArray());
+            return response()->json($categories, 200);
+        } catch (\Exception $e) {
+            Log::error('Error fetching product categories: ' . $e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
     
 
     /**

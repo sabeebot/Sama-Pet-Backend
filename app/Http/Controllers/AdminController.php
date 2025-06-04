@@ -13,12 +13,18 @@ class AdminController extends Controller
 {
     public function login(Request $request)
     {
+        //We are getting the post using request and we are validating that the name email and password
+        // in the form is required and added in. addionally for the email we are specifying it is email
         $request->validate([
             'email' => 'required|email',
             'password' => 'required',
         ]);
 
+        // this is eloquent orm by lravel :: where. it get the first email from the admin email column where it matches
+        // the email entered by getting it from the request x
         $admin = Admin::where('email', $request->email)->first();
+
+        // condition to check if the admin was !found based on email bascaially null and or if the has password doesnt match
         if (!$admin || !Hash::check($request->password, $admin->password)) {
             return response()->json(['message' => "Invalid email or password."], 401);
         }

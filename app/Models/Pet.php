@@ -18,6 +18,7 @@ class Pet extends Model
         'breed',
         'color',
         'image',
+        'gender',
         'is_vaccinated',
         'is_microchipped',
         'is_neutered',
@@ -32,10 +33,20 @@ class Pet extends Model
 
     use HasFactory;
 
+    protected $casts = [
+        'documents' => 'array', // Automatically cast JSON to array
+    ];
+
     public function petOwner()
     {
         return $this->belongsTo(PetOwner::class);
     }
+
+    public function owner()
+{
+    return $this->belongsTo(PetOwner::class, 'pet_owner_id');
+}
+
 
     public function QrCode()
     {
@@ -46,4 +57,7 @@ class Pet extends Model
     {
         return $this->hasOne(Membership::class);
     }
+
+    // this was also added check if pets will work
+    protected $table = 'pets';
 }

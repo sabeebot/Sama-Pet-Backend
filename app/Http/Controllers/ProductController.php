@@ -9,6 +9,7 @@ use App\Helpers\FirebaseStorageHelper;
 use App\Http\Requests\AddProductRequest;
 use Illuminate\Support\Facades\Validator;
 use App\Http\Requests\UpdateProductRequest;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class ProductController extends Controller
 {
@@ -28,6 +29,245 @@ class ProductController extends Controller
             return response()->json(['error' => 'An error occurred while fetching products.'], 500);
         }
     }
+
+    public function samaStoreIndex()
+{
+    try {
+        $products = \App\Models\Product::all();
+        // Return a collection of products as ProductResource
+        return \App\Http\Resources\ProductResource::collection($products);
+    } catch (\Exception $e) {
+        Log::error('Error fetching products: ' . $e->getMessage());
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+}
+
+
+public function updateProductAdminDashboard(Request $request, $id)
+{
+    Log::debug('Admin Dashboard Product Update Request:', $request->all());
+
+    $product = Product::findOrFail($id);
+    $input = $request->input('product');
+    $provider = $request->input('provider_data');
+
+    if (!$provider || !isset($provider['profileId'])) {
+        Log::debug('Provider data or profile ID is missing in admin product update request.');
+        return response()->json(['error' => 'Provider data or profile ID is missing.'], 422);
+    }
+
+    // Validate required fields.
+    $validator = Validator::make($input, [
+        'pet_type'            => 'required|string',
+        'category_id'            => 'nullable|integer',
+        'product_name_en'        => 'required|string',
+        'product_name_ar'        => 'required|string',
+        'product_description_en' => 'required|string',
+        'product_description_ar' => 'required|string',
+        'quantity'               => 'required|integer',
+        'price_before'           => 'required|numeric',
+        'price_after'            => 'required|numeric',
+        'discount'               => 'required|numeric'
+    ]);
+
+    if ($validator->fails()) {
+        Log::debug('Admin product update validation failed:', $validator->errors()->all());
+        return response()->json(['errors' => $validator->errors()], 422);
+    }
+
+    // Prepare data for update.
+    $data = [
+        'pet_type'            => $input['pet_type'],
+        'category_id'            => $input['category_id'] ?? null,
+        'product_name_en'        => $input['product_name_en'],
+        'product_name_ar'        => $input['product_name_ar'],
+        'product_description_en' => $input['product_description_en'],
+        'product_description_ar' => $input['product_description_ar'],
+        'quantity'               => $input['quantity'],
+        'price_before'           => $input['price_before'],
+        'price'                  => $input['price_after'],
+        'discount'               => $input['discount']
+    ];
+
+    Log::debug('Updating admin product with data:', $data);
+    $product->update($data);
+    Log::debug('Admin Product updated successfully:', ['product' => $product]);
+
+    return response()->json([
+        'message' => 'Admin product updated successfully',
+        'product' => $product,
+    ], 200);
+}
+
+
+
+
+
+
+    /**
+     * Store a new product from the admin dashboard.
+     */
+    public function storeProductAdminDashboard(Request $request)
+{
+    Log::debug('Admin Dashboard Product Request:', $request->all());
+
+    // Extract product data and provider data.
+    $product = $request->input('product');
+    $provider = $request->input('provider_data');
+
+    if (!$provider || !isset($provider['profileId'])) {
+        Log::debug('Provider data or profile ID is missing in admin product request.');
+        return response()->json(['error' => 'Provider data or profile ID is missing.'], 422);
+    }
+
+    $provider_id = $provider['profileId'];
+    Log::debug('Admin Provider ID:', ['provider_id' => $provider_id]);
+
+    // Validate required fields.
+    $validator = Validator::make($product, [
+        'pet_type'            => 'required|string',
+        'category_id'            => 'nullable|integer',
+        'product_name_en'        => 'required|string',
+        'product_name_ar'        => 'required|string',
+        'product_description_en' => 'required|string',
+        'product_description_ar' => 'required|string',
+        'quantity'               => 'required|integer',
+        'price_before'           => 'required|numeric',
+        'price_after'            => 'required|numeric',  // Value from input "price-after"
+        'discount'               => 'required|numeric'
+    ]);
+
+    if ($validator->fails()) {
+        Log::debug('Admin product validation failed:', $validator->errors()->all());
+        return response()->json(['errors' => $validator->errors()], 422);
+    }
+
+    // Prepare data for insertion.
+    $data = [
+        'pet_type'            => $product['pet_type'],
+        'category_id'            => $product['category_id'] ?? null,
+        'product_name_en'        => $product['product_name_en'],
+        'product_name_ar'        => $product['product_name_ar'],
+        'product_description_en' => $product['product_description_en'],
+        'product_description_ar' => $product['product_description_ar'],
+        'quantity'               => $product['quantity'],
+        'price_before'           => $product['price_before'],
+        'price'                  => $product['price_after'], // Use value from "price-after" input
+        'discount'               => $product['discount'],
+        'provider_id'            => $provider_id,
+        'status'                 => '0'
+    ];
+
+    Log::debug('Storing admin product with data:', $data);
+    $storedProduct = Product::create($data);
+    Log::debug('Admin Product stored successfully:', ['storedProduct' => $storedProduct]);
+
+    return response()->json([
+        'message' => 'Admin product added successfully',
+        'product' => $storedProduct,
+    ], 200);
+}
+
+
+public function deleteProductAdminDashboard(Request $request, $id)
+{
+    Log::debug('Admin Dashboard Product Delete Request:', $request->all());
+
+    $provider = $request->input('provider_data');
+    if (!$provider || !isset($provider['profileId'])) {
+        Log::debug('Provider data or profile ID is missing in admin product delete request.');
+        return response()->json(['error' => 'Provider data or profile ID is missing.'], 422);
+    }
+
+    $product = Product::find($id);
+    if (!$product) {
+        return response()->json(['error' => 'Product not found.'], 404);
+    }
+
+    $product->delete();
+    Log::debug('Admin Product deleted successfully:', ['product_id' => $id]);
+
+    return response()->json(['message' => 'Admin product deleted successfully'], 200);
+}
+   
+  
+
+
+
+   /**
+ * Store a newly created product.
+ */
+public function store(Request $request)
+{
+    $validator = Validator::make($request->all(), [
+        'product_name_en' => 'required|string|max:255',
+        'product_name_ar' => 'required|string|max:255',
+        'pet_type'        => 'required|string|max:50',
+        'status'          => 'required|integer|in:0,1',
+        'quantity'        => 'required|integer|min:1',
+        'start_date'      => 'required|date',
+        'received_date'   => 'required|date',
+        'price'           => 'required|numeric|min:0',
+        'delivery_price'  => 'required|numeric|min:0',
+        'imageUrl'        => 'nullable|string',
+    ]);
+
+    if ($validator->fails()) {
+        return response()->json(['errors' => $validator->errors()], 422);
+    }
+
+    $data = $validator->validated();
+
+    // Set default image URL (if desired)
+    $imagePath = 'default.png';
+
+    // Process image if provided as a Base64 string
+    if (!empty($data['imageUrl']) && preg_match('/^data:image\/(\w+);base64,/', $data['imageUrl'], $matches)) {
+        $extension = strtolower($matches[1]); // jpg, jpeg, or png
+        if (!in_array($extension, ['jpg', 'jpeg', 'png'])) {
+            return response()->json(['error' => 'Invalid image type. Only JPG, JPEG, and PNG are allowed.'], 422);
+        }
+        $imageData = substr($data['imageUrl'], strpos($data['imageUrl'], ',') + 1);
+        $decodedImage = base64_decode($imageData);
+        if ($decodedImage === false) {
+            return response()->json(['error' => 'Base64 decoding failed.'], 422);
+        }
+        $fileName = uniqid() . '.' . $extension;
+        $firebasePath = 'productDocuments/' . $fileName;
+
+        $serviceAccountPath = storage_path('app/firebase-auth.json');
+        if (!file_exists($serviceAccountPath)) {
+            return response()->json(['error' => 'Firebase service account file not found.'], 500);
+        }
+
+        try {
+            $factory = (new \Kreait\Firebase\Factory)->withServiceAccount($serviceAccountPath);
+            $storage = $factory->createStorage();
+            $bucket = $storage->getBucket();
+
+            $bucket->upload($decodedImage, [
+                'name' => $firebasePath,
+                'predefinedAcl' => 'publicRead'
+            ]);
+
+            $imagePath = "https://storage.googleapis.com/{$bucket->name()}/{$firebasePath}";
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Image upload failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    // Merge the image path into data and create product.
+    $data['image_url'] = $imagePath;
+    // Create the product (assuming your Product model's $fillable includes image_url)
+    $product = Product::create($data);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Product stored successfully.'
+    ]);
+}
+
+
 
    public function show($id)
 {
@@ -65,6 +305,15 @@ class ProductController extends Controller
 
     }
 
+
+    public function getByProvider($providerId)
+{
+    $products = Product::where('provider_id', $providerId)->get();
+
+    return response()->json($products);
+}
+
+
   
 
     public function addProduct(Request $request, $provider_id) {
@@ -98,9 +347,9 @@ class ProductController extends Controller
             'productNameEn' => 'required|string',
             'productDescriptionEn' => 'required|string',
             'productDescriptionAr' => 'required|string',
-            'discount' => 'required|integer',
-            'priceAfter' => 'required|integer',
-            'amount' => 'required|integer',
+            'discount' => 'required|numeric',
+            'priceAfter' => 'required|numeric',
+            'amount' => 'required|numeric',
             'typeOfPet' => 'required',
         ]);
     
@@ -217,23 +466,21 @@ class ProductController extends Controller
     }
 
 
-    public function getProductbyId($provider_id,$product_id) {
-       
-        // Find the product by ID and provider_id
-        $product = Product::where('id', $product_id)
-                          ->where('provider_id', $provider_id)
-                          ->first();
-                                 
-        // Check if the product exists
-        if (!$product) {
-            return response()->json(['message' => 'Product not found'], 404);
-        }else{
-             //return the updated product as a response
-            return response()->json(['message' => 'Product Get successfully', 'data' => $product], 200);
-        }
-    
-       
+    public function getProductById($id)
+{
+    try {
+        $product = Product::findOrFail($id);
+        Log::debug('Product fetched: ', $product->toArray());
+        return response()->json($product);
+    } catch (ModelNotFoundException $e) {
+        Log::error('Product not found: ' . $id);
+        return response()->json(['message' => 'Product not found'], 404);
+    } catch (\Exception $e) {
+        Log::error('Failed to fetch product: ' . $e->getMessage());
+        return response()->json(['message' => 'Failed to fetch product', 'error' => $e->getMessage()], 500);
     }
+}
+
     public function updateProduct(Request $request, $provider_id, $product_id)
     {
         $product = Product::find($product_id);
@@ -268,9 +515,9 @@ class ProductController extends Controller
             'productNameEn' => 'sometimes|required|string',
             'productDescriptionEn' => 'sometimes|required|string',
             'productDescriptionAr' => 'sometimes|required|string',
-            'discount' => 'sometimes|required|integer',
-            'priceAfter' => 'sometimes|required|integer',
-            'amount' => 'sometimes|required|integer',
+            'discount' => 'sometimes|required|numeric',
+            'priceAfter' => 'sometimes|required|numeric',
+            'amount' => 'sometimes|required|numeric',
             'typeOfPet' => 'sometimes|required',
         ]);
     

@@ -6,9 +6,11 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Foundation\Auth\User as Authenticatable;
 
 
-class PetOwner extends Model
+
+class PetOwner extends Authenticatable
 {
     use HasFactory, HasApiTokens, Notifiable;
 
@@ -27,7 +29,7 @@ class PetOwner extends Model
         'house',
         'road',
         'block',
-        'building_name',
+        'building',
         'apt_number',
         'floor',
         'company',
@@ -39,10 +41,10 @@ class PetOwner extends Model
     ];
 
 
-    public function getStatusAttribute()
-    {
-        return $this->userStatus();
-    }
+    //public function getStatusAttribute()
+    //{
+        //return $this->userStatus();
+    //}
 
     private function userStatus()
     {

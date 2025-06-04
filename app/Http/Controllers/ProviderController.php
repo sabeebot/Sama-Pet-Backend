@@ -21,6 +21,45 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class ProviderController extends Controller
 {
+
+    /**
+     * Return a list of providers with their IDs and names.
+     */
+    public function getProviders()
+    {
+        try {
+            // Select only the ID and provider_name_en (or use 'name' if preferred)
+            $providers = Provider::select('id', 'provider_name_en')->get();
+            Log::debug('Fetched providers:', $providers->toArray());
+            return response()->json($providers, 200);
+        } catch (\Exception $e) {
+            Log::error('Error fetching providers: ' . $e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+
+    public function getProviderByName($name)
+{
+    Log::debug('[getProviderByName] incoming:', ['name'=>$name]);
+
+    // Try a partial, case-insensitive match
+    $provider = Provider::where('provider_name_en','LIKE',"%{$name}%")->first();
+
+    if (! $provider) {
+        return response()->json([
+            'message'         => 'Provider not found',
+            'searched_name'   => $name,
+            'available_names' => Provider::pluck('provider_name_en'),
+        ], 404);
+    }
+
+    return response()->json(['data'=>$provider], 200);
+}
+
+
+
+
     public function index()
     {
         try {
@@ -58,6 +97,53 @@ class ProviderController extends Controller
         }
         
     }
+
+
+    public function storePartner(Request $request)
+{
+    try {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'type' => 'required|string',
+            'email' => 'required|email',
+            'contact_no' => 'required|string',
+            'provider_name_en' => 'required|string',
+            'provider_name_ar' => 'required|string',
+            'office' => 'required|string',
+            'status' => 'required|string',
+        ]);
+
+        $provider = Provider::create([
+            'type' => $validated['type'],
+            'name' => $validated['name'],
+            'contact_no' => $validated['contact_no'],
+            'email' => $validated['email'],
+            'provider_name_en' => $validated['provider_name_en'],
+            'provider_name_ar' => $validated['provider_name_ar'],
+            'instagram' => $request->input('instagram', ''),
+            'website' => '',
+            'start_date' => '',
+            'end_date' => '',
+            'password' => 'Null',
+            'social_media' => $request->input('social_media', '[]'),
+            'documents' => $request->input('documents', '[]'),
+            'office' => $validated['office'],
+            'road' => $request->input('road', ''),
+            'block' => $request->input('block', ''),
+            'city' => $request->input('city', ''),
+            'status' => $validated['status'],
+            'availability_days' => $request->input('availability_days', '[]'),
+            'availability_hours' => $request->input('availability_hours', '{"start": "", "end": ""}'),
+            'authorized_persons' => $request->input('authorized_persons', '[]'),
+            'profile_image' => 'null',
+        ]);
+
+        return response()->json(['message' => 'Provider created successfully', 'provider' => $provider], 201);
+    } catch (\Exception $e) {
+        return response()->json(['message' => 'Failed to store provider', 'error' => $e->getMessage()], 500);
+    }
+}
+
     public function getProductById($id)
     {
         try {
@@ -70,28 +156,85 @@ class ProviderController extends Controller
         }
     }
 
+
+   
+
+    public function getProductsByProviderId($providerId)
+    {
+        try {
+            // Log the received provider id for debugging
+            Log::debug('Received providerId: ' . $providerId);
+    
+            $products = Product::where('provider_id', $providerId)->get();
+            return response()->json($products, 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to fetch products',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+    
+
+
+
+    // The function deletes a provider and all associated data such as services, coupons, and veterinarians.
     public function deleteProvider($id)
     {
-
         try {
-            // Find the provider by ID or fail
+            // Attempt to find the provider by ID.
+            // If the provider does not exist, the function will automatically fail and throw an exception.
             $provider = Provider::findOrFail($id);
+
+            // Check if the provider has a profile image and it's not null.
+            // This condition ensures that the profile image is available before trying to delete it (if needed).
             if($provider->profile_image && $provider->profile_image != "null"){
-                FirebaseStorageHelper::deleteFile($provider->profile_image);
-            }
-            // Delete related services
+                //FirebaseStorageHelper::deleteFile($provider->profile_image);
+            }          
+
+            // Delete all related services for the provider.
+            // This deletes the services associated with the provider in the database.
+            // The 'services' method defines the relationship between the provider and the services.
+            // The 'delete()' method will remove the related service records.
             $provider->services()->delete();
 
-            // Delete the provider
+            // Permanently delete related coupons.
+            // The 'coupons' method defines the relationship between the provider and its coupons.
+            // The 'forceDelete()' method will delete the related coupons from the database, bypassing any soft delete functionality.
+            // This is useful for permanently removing coupons associated with the provider.
+            //$provider->coupons()->forceDelete();
+
+            // Force delete related veterinarians.
+            // Similar to coupons, this deletes all veterinarians linked to the provider, permanently.
+            // Using 'forceDelete()' ensures that the records are not just soft deleted but completely removed.
+            //$provider->veterinarians()->forceDelete();
+
+            // Finally, delete the provider itself from the database.
+            // This removes the provider from the 'providers' table in the database.
+            // It is important to delete the provider last after removing related data to maintain data integrity.
             $provider->delete();
 
+            // Return a successful response indicating that the provider and related services have been deleted.
+            // The status code '200' signifies a successful operation.
             return response()->json(['message' => 'Provider and related services deleted successfully'], 200);
-        } catch (ModelNotFoundException $e) {
+
+        } 
+        catch (ModelNotFoundException $e)
+        {
+            // Catch the exception if the provider is not found in the database (ID does not exist).
+            // Return a '404 Not Found' response with a message that the provider was not found.
             return response()->json(['message' => 'Provider not found'], 404);
-        } catch (\Exception $e) {
+        } 
+        catch (\Exception $e) 
+        {
+            // Catch any other general exceptions.
+            // Return a '500 Internal Server Error' response with a message indicating the failure.
+            // The error message from the exception will be included in the response for debugging purposes.
             return response()->json(['message' => 'Failed to delete provider', 'error' => $e->getMessage()], 500);
         }
     }
+
+    //
     public function storeInformation(Request $request)
     {
         try {
@@ -164,13 +307,27 @@ class ProviderController extends Controller
             ], 201);
     
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed to store provider information: ' . $e->getMessage()], 500);
-        }
+            // Log the error for backend troubleshooting
+            Log::error('Failed to store provider information: ' . $e->getMessage());
+    
+            // Return a JSON response with detailed error information for debugging
+            return response()->json([
+                'message' => 'Failed to store provider information',
+                'error' => $e->getMessage(),
+                'exception' => $e->getTraceAsString(),
+            ], 500);}
+        
+        
+        
     }
 
 
     public function update_status($id){
-        $Provider = Provider::find($id);
+
+        try
+        {
+
+            $Provider = Provider::find($id);
        
         if ($Provider) {
            if($Provider->status === 'deactive'){
@@ -185,11 +342,31 @@ class ProviderController extends Controller
         
         $Provider->update(['status'=>$status]);
         $Provider->services()->update(['status' => $status ]);
-        $Provider->products()->update(['status' => $status]);
-        $Provider->products_catgory()->update(['status' => $status]);
-        $Provider->doctorInfo()->update(['status' => $status]);
+        //$Provider->products()->update(['status' => $status]); // status column does not exist in table products
+        //$Provider->products_catgory()->update(['status' => $status]); //exists as php but not in database
+        //$Provider->doctorInfo()->update(['status' => $status]); //status column does not exist in the table doctorInfo
          
         return response()->json(['message' => 'Provider status updated successfully'], 200);
+
+        }catch (ModelNotFoundException $e) {
+        // Catch and handle the case when the provider is not found
+        Log::error('Provider not found: ' . $e->getMessage());
+        return response()->json(['message' => 'Provider not found', 'error' => $e->getMessage()], 404);
+    } catch (\Exception $e) {
+        // Catch any other exceptions and return a detailed error response
+        Log::error('Error updating provider status: ' . $e->getMessage());
+        Log::error('Stack Trace: ' . $e->getTraceAsString());
+        
+        // Return detailed error response for debugging
+        return response()->json([
+            'message' => 'Failed to update provider status',
+            'error' => $e->getMessage(),
+            'stack_trace' => $e->getTraceAsString() // Return stack trace for more insights
+        ], 500);
+    }
+        
+
+        
     }
 
 

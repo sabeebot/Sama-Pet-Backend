@@ -34,6 +34,8 @@ class PetResource extends JsonResource
             'allow_adoption' => $this->allow_adoption,
             'pet_owner_id' => $this->pet_owner_id,
             'description' => $this->description,
+            'membership'    => $this->whenLoaded('membership'),
+            
         ];
     }
 }

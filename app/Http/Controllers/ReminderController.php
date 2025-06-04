@@ -104,8 +104,8 @@ class ReminderController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'pet_owner_id' => 'required|exists:pet_owners,id',
-            'pet_id' => 'required|exists:pets,id',
-            'provider_id' => 'required|exists:providers,id',
+            'pet_id' => 'nullable|exists:pets,id',
+            'provider_id' => 'nullable|exists:providers,id',
             'title' => 'required|string|max:255',
             'date' => 'required|date',
             'time' => 'nullable|date_format:H:i',

@@ -3,13 +3,113 @@
 namespace App\Http\Controllers;
 
 use App\Models\Service;
+use App\Models\ServiceOrder;
+use App\Models\ServiceOrderItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Carbon\Carbon;
+
 use App\Helpers\FirebaseStorageHelper;
 use Illuminate\Support\Facades\Validator;
 
 class ServiceController extends Controller
 {
+
+
+    
+
+    public function getSalesOverview($providerId)
+{
+    try {
+        $currentMonthStart = Carbon::now()->startOfMonth();
+        $currentMonthEnd = Carbon::now()->endOfMonth();
+
+        // Get all service IDs owned by the provider
+        $serviceIds = Service::where('provider_id', $providerId)->pluck('id');
+
+        // Count total services the provider has
+        $totalServices = $serviceIds->count();
+
+        // Get the total sales amount for this month
+        $monthlySales = ServiceOrderItem::whereIn('service_id', $serviceIds)
+            ->whereHas('serviceOrder', function ($query) use ($currentMonthStart, $currentMonthEnd) {
+                $query->whereBetween('invoice_date', [$currentMonthStart, $currentMonthEnd]);
+            })
+            ->sum('total_price');
+
+        return response()->json([
+            'total_services' => $totalServices,
+            'monthly_sales' => $monthlySales,
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+}
+
+public function getServiceOrdersByUserId($petOwnerId)
+    {
+        $orders = ServiceOrder::with('serviceItems.service')
+                     ->where('pet_owner_id', $petOwnerId)
+                     ->orderBy('invoice_date', 'desc')
+                     ->get();
+
+        return response()->json($orders);
+    }
+
+
+
+    public function storeServiceOrder(Request $request)
+{
+    $data = $request->validate([
+        'invoice_date' => 'required|date',
+        'status' => 'required|string',
+        'customer_name' => 'required|string',
+        'contact_no' => 'required|string',
+        'email' => 'required|email',
+        'address' => 'required|string',
+        'delivery' => 'nullable|numeric',
+        'total_amount' => 'required|numeric',
+        'pet_owner_id' => 'nullable|integer',
+        'services' => 'required|array',
+        'services.*.service_id' => 'required|integer',
+        'services.*.quantity' => 'required|integer',
+        'services.*.discount_percentage' => 'nullable|numeric',
+    ]);
+
+    $order = ServiceOrder::create([
+        'invoice_date' => $data['invoice_date'],
+        'status' => $data['status'],
+        'customer_name' => $data['customer_name'],
+        'contact_no' => $data['contact_no'],
+        'email' => $data['email'],
+        'address' => $data['address'],
+        'delivery' => $data['delivery'] ?? 0,
+        'total_amount' => $data['total_amount'],
+        'pet_owner_id' => $data['pet_owner_id'],
+    ]);
+
+    foreach ($data['services'] as $item) {
+        $unitPrice = Service::find($item['service_id'])->new_price ?? 0;
+        $discount = $item['discount_percentage'] ?? 0;
+        $discountedPrice = $unitPrice - ($unitPrice * $discount / 100);
+        $total = $discountedPrice * $item['quantity'];
+
+        ServiceOrderItem::create([
+            'service_order_id' => $order->id,
+            'service_id' => $item['service_id'],
+            'quantity' => $item['quantity'],
+            'unit_price' => $unitPrice,
+            'discount_percentage' => $discount,
+            'total_price' => $total,
+        ]);
+    }
+
+    return response()->json(['message' => 'Service order stored', 'order_id' => $order->id]);
+}
+
+    
+
+
     public function index()
     {
 
@@ -74,6 +174,7 @@ class ServiceController extends Controller
         }
     }
 
+    // This function is used to add a Service
     public function store(Request $request)
     {
         // return response()->json($request, 200);

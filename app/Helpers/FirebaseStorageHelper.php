@@ -4,28 +4,25 @@ namespace App\Helpers;
 
 use Kreait\Firebase\Factory;
 use Illuminate\Support\Facades\Log;
-
 use Google\Cloud\Storage\StorageClient;
 
 class FirebaseStorageHelper
 {
+    // Method to check if a file exists in Firebase Storage
+    public static function checkFileExists($filePath)
+    {
+        $serviceAccountPath = storage_path('app/firebase-auth.json');
+        if (!file_exists($serviceAccountPath)) {
+            throw new \Exception('Firebase service account file does not exist at path: ' . $serviceAccountPath);
+        }
 
+        $factory = (new Factory)->withServiceAccount($serviceAccountPath);
+        $storage = $factory->createStorage();
+        $bucket = $storage->getBucket();
 
-// Method to check if a file exists in Firebase Storage
-public static function checkFileExists($filePath)
-{
-    $serviceAccountPath = storage_path('app/firebase-auth.json');
-    if (!file_exists($serviceAccountPath)) {
-        throw new \Exception('Firebase service account file does not exist at path: ' . $serviceAccountPath);
+        $object = $bucket->object($filePath);
+        return $object->exists(); // Returns true if the file exists, false otherwise
     }
-
-    $factory = (new Factory)->withServiceAccount($serviceAccountPath);
-    $storage = $factory->createStorage();
-    $bucket = $storage->getBucket();
-
-    $object = $bucket->object($filePath);
-    return $object->exists(); // Returns true if the file exists, false otherwise
-}
     
     // Method to upload a regular file and return a signed URL
     public static function uploadFile($file, $type)
@@ -43,15 +40,16 @@ public static function checkFileExists($filePath)
         $filePath = self::generateFilePath($type, $fileName);
     
         $firebaseFile = fopen($file->getPathname(), 'r');
+        // Set predefinedAcl to publicRead
         $bucket->upload($firebaseFile, [
-            'name' => $filePath
+            'name' => $filePath,
+            'predefinedAcl' => 'publicRead'
         ]);
     
-        // Generate a signed URL for the uploaded file
+        // Generate a public URL for the uploaded file
         return self::getSignedUrl($filePath);
     }
     
-
     // Method to upload a base64-encoded image and return a signed URL
     public static function uploadBase64Image($base64Image, $type, $fileName)
     {
@@ -76,19 +74,21 @@ public static function checkFileExists($filePath)
         fwrite($firebaseFile, $imageData);
         rewind($firebaseFile);
 
-        // Upload the image to Firebase Storage
+        // Upload the image to Firebase Storage with public-read access
         $bucket->upload($firebaseFile, [
-            'name' => $filePath
+            'name' => $filePath,
+            'predefinedAcl' => 'publicRead'
         ]);
 
-        // Return signed URL for the uploaded file
+        // Return public URL for the uploaded file
         return self::getSignedUrl($filePath);
     }
-
 
     // Method to delete a file from Firebase Storage
     public static function deleteFile($fileUrl)
     {
+        Log::info("Deleting file:", ['path' => $fileUrl]);
+
         try {
             // Parse URL to get the path
             $parsedUrl = parse_url($fileUrl);
@@ -128,18 +128,16 @@ public static function checkFileExists($filePath)
         }
     }
 
-
-
     public static function getFilePathFromUrl($url)
-{
-    // Extract the file path from the public URL
-    $parsedUrl = parse_url($url);
-    if (isset($parsedUrl['path'])) {
-        // Remove the leading "/" from the path
-        return ltrim($parsedUrl['path'], '/');
+    {
+        // Extract the file path from the public URL
+        $parsedUrl = parse_url($url);
+        if (isset($parsedUrl['path'])) {
+            // Remove the leading "/" from the path
+            return ltrim($parsedUrl['path'], '/');
+        }
+        throw new \Exception('Invalid URL: Unable to extract file path.');
     }
-    throw new \Exception('Invalid URL: Unable to extract file path.');
-}
 
     public static function deleteFileByUrl($url)
     {
@@ -165,8 +163,8 @@ public static function checkFileExists($filePath)
             'productDocuments' => 'product_documents/',
             'serviceDocuments' => 'service_documents/',
             'doctorImages' => 'doctor_images/',
-            'CategoryDocument'=>'category_document/',
-            'GalleryData'=>'gallery_data/'
+            'CategoryDocument' => 'category_document/',
+            'GalleryData' => 'gallery_data/'
         ];
 
         if (!array_key_exists($type, $pathMap)) {
@@ -176,7 +174,7 @@ public static function checkFileExists($filePath)
         return $pathMap[$type] . uniqid() . '_' . $fileName;
     }
 
-    // Method to get a signed URL for accessing a file
+    // Method to get a public URL for accessing a file (instead of a signed URL)
     public static function getSignedUrl($filePath)
     {
         $serviceAccountPath = storage_path('app/firebase-auth.json');
@@ -188,14 +186,8 @@ public static function checkFileExists($filePath)
         $storage = $factory->createStorage();
         $bucket = $storage->getBucket();
     
-        $object = $bucket->object($filePath);
-        if ($object->exists()) {
-            // Generate a signed URL valid for 1 hour
-            $url = $object->signedUrl(new \DateTime('1 hour'));
-            return $url;
-        } else {
-            throw new \Exception('File does not exist at path: ' . $filePath);
-        }
+        // Construct and return the public URL.
+        // Ensure that files are uploaded with public-read access.
+        return "https://storage.googleapis.com/" . $bucket->name() . "/" . $filePath;
     }
-    
 }

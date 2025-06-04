@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Http\Resources\MemberShipResource;
 use App\Models\Membership;
+use App\Models\Invoice;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use App\Models\Package;
 use App\Models\Pet;
+use Illuminate\Support\Facades\Log;
+
 
 class MemeberShipController extends Controller
 {
@@ -107,10 +110,112 @@ class MemeberShipController extends Controller
         //
     }
 
-    /**
-     * Update the specified resource in storage.
-     */
-    public function update(Request $request, string $id) {}
+
+
+    public function getMembershipDetails($id)
+{
+    $membership = Membership::with('pet.owner')->find($id);
+
+    if (!$membership) {
+        return response()->json(['message' => 'Membership not found'], 404);
+    }
+
+    return response()->json([
+        'pet' => $membership->pet,
+        'owner' => $membership->pet->owner,
+        'policy' => $membership
+    ]);
+}
+
+
+    public function storeSingle(Request $request)
+{
+    try {
+        // Validate the request data for a single membership, including new fields.
+        $request->validate([
+            'package_id' => 'required|exists:packages,id',
+            'pet_id'     => 'required|exists:pets,id',
+            'price'      => 'required|numeric',
+            'start_date' => 'required|date',
+            'end_date'   => 'required|date',
+            'status'     => 'nullable|string|max:50',
+            'pay_type'   => 'nullable|string|max:50',
+            'delivery'   => 'nullable|string|max:50',
+        ]);
+
+        // Create membership record
+        $membership = Membership::create([
+            'package_id' => $request->package_id,
+            'pet_id'     => $request->pet_id,
+            'price'      => $request->price,
+            'start_date' => $request->start_date,
+            'end_date'   => $request->end_date,
+            'status'     => $request->status,
+            'pay_type'   => $request->pay_type,
+            'delivery'   => $request->delivery,
+        ]);
+
+        // Create an invoice for this membership
+        $invoice = Invoice::create([
+            'membership_id' => $membership->id,
+            // 'order_id' => null, // if you're not using an order, keep this null or remove it
+        ]);
+
+        return response()->json([
+            'message' => 'Membership and invoice created successfully.',
+            'membership' => $membership,
+            'invoice' => $invoice
+        ], 201);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json(['message' => $e->errors()], 422);
+    } catch (\Exception $e) {
+        Log::error('Membership store error: ' . $e->getMessage());
+        return response()->json(['message' => $e->getMessage()], 500);
+    }
+}
+
+
+public function update(Request $request, string $id)
+{
+    try {
+        // Validate the incoming request data, including the new fields.
+        $request->validate([
+            'package_id' => 'required|exists:packages,id',
+            'pet_id'     => 'required|exists:pets,id',
+            'price'      => 'required|numeric',
+            'start_date' => 'required|date',
+            'end_date'   => 'required|date',
+            'status'     => 'nullable|string|max:50',
+            'pay_type'   => 'nullable|string|max:50',
+            'delivery'   => 'nullable|string|max:50',
+        ]);
+
+        // Find the membership record by its ID
+        $membership = Membership::findOrFail($id);
+
+        // Update the membership with the new data
+        $membership->update([
+            'package_id' => $request->package_id,
+            'pet_id'     => $request->pet_id,
+            'price'      => $request->price,
+            'start_date' => $request->start_date,
+            'end_date'   => $request->end_date,
+            'status'     => $request->status,
+            'pay_type'   => $request->pay_type,
+            'delivery'   => $request->delivery,
+        ]);
+
+        return response()->json(['message' => 'Membership updated successfully.']);
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        return response()->json(['message' => $e->errors()], 422);
+    } catch (\Exception $e) {
+        Log::error('Membership update error: ' . $e->getMessage());
+        return response()->json(['message' => $e->getMessage()], 500);
+    }
+}
+
+
 
 
     /**
